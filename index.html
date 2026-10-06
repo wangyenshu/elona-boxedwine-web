@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Elona+ Custom-GX in Browser</title>
+<script src="coi-serviceworker.js"></script>
+</head>
+<body>
+<h1>Elona+ Custom-GX in Browser</h1>
+<p id="status">Loading...</p>
+<canvas id="canvas" width="800" height="600" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<p>New game: after the intro the screen stays black while the world is generated. This takes many minutes in the browser; don't reload.</p>
+<p>Sound starts after your first mouse click on the game. Saves are kept in this browser (IndexedDB). Add <code>?sound=false</code> to the URL to mute.</p>
+<h3>Credit:</h3>
+<ul>
+<li><a href="https://github.com/Ruin0x11/ElonaPlusCustom-GX">Elona+ Custom-GX</a>, Elona+ by Ano, Elona by Noa</li>
+<li><a href="https://github.com/danoon2/Boxedwine">Boxedwine</a> (<a href="license.txt">license</a>)</li>
+<li><a href="https://github.com/gzuidhof/coi-serviceworker">coi-serviceworker</a></li>
+</ul>
+<script src="shell.js"></script>
+</body>
+</html>
