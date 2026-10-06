@@ -1,0 +1,89 @@
+--- a/platform/sdl/kdspaudio.cpp
++++ b/platform/sdl/kdspaudio.cpp
+@@ -26,6 +26,14 @@
+ static bool sdlAudioOpen;
+ static U8 sdlSilence;
+ 
++// Guards `voices` and each voice's audio buffers. SDL_LockAudio() is not enough: SDL2's
++// emscripten backend calls audioCallback from the browser's main thread without taking
++// SDL's audio lock, so in multi-threaded web builds writeAudio/closeAudio (emulated
++// threads) and audioCallback modified the same std::deque/std::list at the same time,
++// corrupting memory ("memory access out of bounds"). Recursive, so the callback can
++// close a voice while holding it. Never hold it while calling into SDL's audio API.
++static BOXEDWINE_MUTEX audioDataMutex;
++
+ void closeSdlAudio() {
+ 	if (sdlAudioOpen) {
+ 		sdlAudioOpen = false;
+@@ -124,7 +132,8 @@
+ // not really a voice, currently they are not mixed
+ std::list<std::shared_ptr<KDspAudioSdl>> voices;
+ 
+-void audioCallback(void* userdata, U8* stream, S32 len) {	
++void audioCallback(void* userdata, U8* stream, S32 len) {
++	BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(audioDataMutex);
+ 	if (!voices.size()) {
+ 		memset(stream, sdlSilence, len);
+ 		return;
+@@ -149,7 +158,7 @@
+ 			stream += todo;
+ 			len -= todo;
+ 		}
+-		if (len) {
++		if (len && available) { // nothing queued: don't convert (or malloc an empty buffer) each callback
+ 			data->cvt.len = available;
+ 			if (data->cvtBufLen && data->cvtBufLen < data->cvt.len * data->cvt.len_mult) {
+ 				data->cvtBufLen = 0;
+@@ -230,7 +239,10 @@
+ 	}
+ 
+ 	this->open = true;
+-	voices.push_back(shared_from_this());
++	{
++		BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(audioDataMutex);
++		voices.push_back(shared_from_this());
++	}
+ 	SDL_PauseAudio(0);
+ 	if (this->got.size) {
+ 		//this->dspFragSize = this->got.size;
+@@ -252,12 +264,11 @@
+ 	if (this->open) {
+ 		bool needClose = true;
+ 		{
+-			SDL_LockAudio();
++			BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(audioDataMutex);
+ 			if (audioBuffer.size() || (this->cvtBufPos != 0 && this->cvtBufPos < this->cvt.len_cvt)) {
+ 				closeWhenDone = true;
+ 				needClose = false;
+ 			}
+-			SDL_UnlockAudio();
+ 		}
+ 		if (needClose) {
+ 			closeSdlAudio();
+@@ -271,6 +282,7 @@
+ 		this->open = false;
+ 		return;
+ 	}
++	BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(audioDataMutex);
+ 	auto it = voices.begin();
+ 	while (it != voices.end()) {
+ 		std::shared_ptr<KDspAudioSdl> p = *it;
+@@ -306,16 +318,14 @@
+ 		timeSinceLastWrite = KSystem::getMilliesSinceStart();
+ 		return len;
+ 	}
+-	SDL_LockAudio();
++	BOXEDWINE_CRITICAL_SECTION_WITH_MUTEX(audioDataMutex);
+ 	if (this->audioBuffer.size() > delay) {
+-		SDL_UnlockAudio();
+ 		return -K_EWOULDBLOCK;
+ 	}
+ 	U32 blockSize = bytesPerSampleWant() * want.channels;
+ 	len = std::min(len, ((delay - (U32)this->audioBuffer.size()) & ~(blockSize - 1)));
+ 	audioBuffer.insert(this->audioBuffer.end(), data, data + len);
+-	SDL_UnlockAudio();
+-	return len;	
++	return len;
+ }
+ 
+ static U32 nextId = 0;
